@@ -1692,29 +1692,40 @@ describe(`QueryCollection`, () => {
         expect(queryFn).toHaveBeenCalled()
       })
 
-      // The first request is the correct bounded window.
-      expect(queryFn).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({
-          meta: expect.objectContaining({
-            loadSubsetOptions: expect.objectContaining({
-              orderBy: expect.arrayContaining([
-                expect.objectContaining({
-                  expression: expect.objectContaining({ path: [`id`] }),
-                  compareOptions: expect.objectContaining({
-                    direction: `asc`,
-                  }),
-                }),
-              ]),
-              limit: 10,
-            }),
-          }),
-        }),
+      // The loadSubsetOptions passed to each queryFn call, in order.
+      const loadSubsetOptions = queryFn.mock.calls.map(
+        ([ctx]: [QueryFunctionContext<any>]) => ctx.meta?.loadSubsetOptions,
       )
 
-      // A plain orderBy + limit query must resolve to exactly one bounded
-      // request. Regression: it also fires a second request with empty
-      // loadSubsetOptions ({}), i.e. an unbounded full-table load.
+      // Call 1 — the correct bounded window: orderBy id asc, offset 0, limit 10.
+      expect(loadSubsetOptions[0]).toMatchObject({
+        offset: 0,
+        limit: 10,
+        orderBy: [
+          {
+            expression: { type: `ref`, path: [`id`] },
+            compareOptions: { direction: `asc` },
+          },
+        ],
+      })
+
+      // Call 2 — the regression: an unbounded full-table load. It carries no
+      // window at all (offset/limit/orderBy/where all absent). This call should
+      // not happen; once the bug is fixed it disappears and the count below passes.
+      const secondWindow = loadSubsetOptions[1] ?? {}
+      expect({
+        offset: secondWindow.offset,
+        limit: secondWindow.limit,
+        orderBy: secondWindow.orderBy,
+        where: secondWindow.where,
+      }).toEqual({
+        offset: undefined,
+        limit: undefined,
+        orderBy: undefined,
+        where: undefined,
+      })
+
+      // A plain orderBy + limit query must resolve to exactly one bounded request.
       expect(queryFn).toHaveBeenCalledTimes(1)
     })
   })
